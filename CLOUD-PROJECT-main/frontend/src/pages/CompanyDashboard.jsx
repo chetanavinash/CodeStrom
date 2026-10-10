@@ -1,0 +1,993 @@
+import { useState, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
+import { toast } from 'react-toastify';
+import API from '../api/axios';
+import { useAuth } from '../context/AuthContext';
+
+const CompanyDashboard = () => {
+  const { user } = useAuth();
+  const navigate = useNavigate();
+  const [contests, setContests] = useState([]);
+  const [interviews, setInterviews] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [showModal, setShowModal] = useState(false);
+  const [showInterviewModal, setShowInterviewModal] = useState(false);
+  const [showDiagnostics, setShowDiagnostics] = useState(false);
+  const [diagnosticsData, setDiagnosticsData] = useState(null);
+  const [diagnosticsLoading, setDiagnosticsLoading] = useState(false);
+  const [hoveredCard, setHoveredCard] = useState(null);
+  const [form, setForm] = useState({
+    title: '', description: '', startTime: '', endTime: ''
+  });
+  const [interviewForm, setInterviewForm] = useState({
+    title: '', candidateName: '', candidateEmail: '', scheduledStart: '', scheduledEnd: ''
+  });
+
+  useEffect(() => {
+    fetchContests();
+    fetchInterviews();
+  }, []);
+
+  const fetchContests = async () => {
+    try {
+      const res = await API.get('/contests/all');
+      setContests(res.data.contests);
+    } catch (err) {
+      toast.error('Failed to fetch contests');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const fetchInterviews = async () => {
+    try {
+      const res = await API.get('/interviews/list');
+      setInterviews(res.data);
+    } catch (err) {
+      toast.error('Failed to fetch interviews');
+    }
+  };
+
+  const fetchDiagnostics = async () => {
+    setDiagnosticsLoading(true);
+    try {
+      const res = await API.get('/analytics/system-diagnostics');
+      setDiagnosticsData(res.data);
+    } catch (err) {
+      toast.error('Failed to fetch EKS diagnostics');
+    } finally {
+      setDiagnosticsLoading(false);
+    }
+  };
+
+  const handleOpenDiagnostics = () => {
+    setShowDiagnostics(true);
+    fetchDiagnostics();
+  };
+
+  // Format date in IST
+  const formatDate = (dateStr) => {
+    return new Date(dateStr).toLocaleString('en-IN', {
+      timeZone: 'Asia/Kolkata',
+      day: 'numeric',
+      month: 'short',
+      year: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit',
+      hour12: true
+    });
+  };
+
+  const handleCreate = async (e) => {
+    e.preventDefault();
+    try {
+      // Convert local IST time to ISO string (fixes timezone issue)
+      const formData = {
+        ...form,
+        startTime: new Date(form.startTime).toISOString(),
+        endTime: new Date(form.endTime).toISOString()
+      };
+      await API.post('/contests/create', formData);
+      toast.success('Contest created successfully!');
+      setShowModal(false);
+      setForm({ title: '', description: '', startTime: '', endTime: '' });
+      fetchContests();
+    } catch (err) {
+      toast.error(err.response?.data?.message || 'Failed to create contest');
+    }
+  };
+
+  const handleCreateInterview = async (e) => {
+    e.preventDefault();
+    try {
+      await API.post('/interviews/create', {
+        ...interviewForm,
+        scheduledStart: new Date(interviewForm.scheduledStart).toISOString(),
+        scheduledEnd: new Date(interviewForm.scheduledEnd).toISOString()
+      });
+      toast.success('Interview scheduled and invite sent successfully!');
+      setShowInterviewModal(false);
+      setInterviewForm({ title: '', candidateName: '', candidateEmail: '', scheduledStart: '', scheduledEnd: '' });
+      fetchInterviews();
+    } catch (err) {
+      toast.error(err.response?.data?.message || 'Failed to schedule interview');
+    }
+  };
+
+  const getStatus = (contest) => {
+    const now = new Date();
+    const start = new Date(contest.startTime);
+    const end = new Date(contest.endTime);
+    if (now < start) return { label: 'Upcoming', color: '#f59e0b', bg: '#fef3c7' };
+    if (now > end) return { label: 'Ended', color: '#ef4444', bg: '#fee2e2' };
+    return { label: 'Live', color: '#10b981', bg: '#d1fae5' };
+  };
+
+  return (
+    <div style={styles.page}>
+      <style>{`
+        @keyframes fadeIn {
+          from { opacity: 0; transform: translateY(20px); }
+          to { opacity: 1; transform: translateY(0); }
+        }
+        @keyframes modalIn {
+          from { opacity: 0; transform: scale(0.9); }
+          to { opacity: 1; transform: scale(1); }
+        }
+        @keyframes pulse {
+          0%, 100% { opacity: 1; }
+          50% { opacity: 0.5; }
+        }
+      `}</style>
+
+      {/* Header */}
+      <div style={styles.header}>
+        <div style={styles.headerContent}>
+          <div>
+            <h1 style={styles.headerTitle}>Welcome back, {user?.name}!</h1>
+            <p style={styles.headerSub}>Manage your coding assessments and track candidates</p>
+          </div>
+          <div style={{ display: 'flex', gap: '12px' }}>
+            <button
+              style={styles.diagnosticsBtn}
+              onClick={handleOpenDiagnostics}
+              onMouseEnter={e => e.currentTarget.style.transform = 'translateY(-2px)'}
+              onMouseLeave={e => e.currentTarget.style.transform = 'translateY(0)'}
+            >
+              📊 EKS Diagnostics
+            </button>
+            <button
+              style={{ ...styles.createBtn, background: 'linear-gradient(135deg, #a855f7, #7c3aed)', boxShadow: '0 4px 15px rgba(124,58,237,0.4)' }}
+              onClick={() => setShowInterviewModal(true)}
+              onMouseEnter={e => e.currentTarget.style.transform = 'translateY(-2px)'}
+              onMouseLeave={e => e.currentTarget.style.transform = 'translateY(0)'}
+            >
+              🎙️ Schedule Interview
+            </button>
+            <button
+              style={styles.createBtn}
+              onClick={() => setShowModal(true)}
+              onMouseEnter={e => e.currentTarget.style.transform = 'translateY(-2px)'}
+              onMouseLeave={e => e.currentTarget.style.transform = 'translateY(0)'}
+            >
+              + Create Contest
+            </button>
+          </div>
+        </div>
+
+        {/* Stats */}
+        <div style={styles.statsRow}>
+          {[
+            { label: 'Total Contests', value: contests.length, icon: '🏆' },
+            { label: 'Live Now', value: contests.filter(c => getStatus(c).label === 'Live').length, icon: '🟢' },
+            { label: 'Upcoming', value: contests.filter(c => getStatus(c).label === 'Upcoming').length, icon: '📅' },
+            { label: 'Ended', value: contests.filter(c => getStatus(c).label === 'Ended').length, icon: '✅' }
+          ].map((stat, i) => (
+            <div key={i} style={styles.statCard}>
+              <span style={styles.statIcon}>{stat.icon}</span>
+              <div>
+                <p style={styles.statValue}>{stat.value}</p>
+                <p style={styles.statLabel}>{stat.label}</p>
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* Contests Grid */}
+      <div style={styles.content}>
+        <h2 style={styles.sectionTitle}>Your Contests</h2>
+
+        {loading ? (
+          <div style={styles.loadingGrid}>
+            {[1, 2, 3].map(i => (
+              <div key={i} style={styles.skeletonCard}>
+                <div style={styles.skeletonTitle} />
+                <div style={styles.skeletonText} />
+                <div style={styles.skeletonText} />
+              </div>
+            ))}
+          </div>
+        ) : contests.length === 0 ? (
+          <div style={styles.empty}>
+            <div style={styles.emptyIcon}>🏆</div>
+            <h3 style={styles.emptyTitle}>No contests yet</h3>
+            <p style={styles.emptySub}>Create your first contest to get started</p>
+            <button
+              style={styles.createBtn}
+              onClick={() => setShowModal(true)}
+            >
+              + Create Contest
+            </button>
+          </div>
+        ) : (
+          <div style={styles.grid}>
+            {contests.map((contest, i) => {
+              const status = getStatus(contest);
+              return (
+                <div
+                  key={contest.id}
+                  style={{
+                    ...styles.card,
+                    transform: hoveredCard === contest.id ? 'translateY(-6px)' : 'translateY(0)',
+                    boxShadow: hoveredCard === contest.id
+                      ? '0 20px 40px rgba(0,0,0,0.12)'
+                      : '0 4px 16px rgba(0,0,0,0.06)',
+                    animation: `fadeIn 0.4s ease-out ${i * 0.1}s both`
+                  }}
+                  onMouseEnter={() => setHoveredCard(contest.id)}
+                  onMouseLeave={() => setHoveredCard(null)}
+                >
+                  <div style={styles.cardTop}>
+                    <span style={{
+                      ...styles.statusBadge,
+                      color: status.color,
+                      background: status.bg
+                    }}>
+                      {status.label === 'Live' && '● '}{status.label}
+                    </span>
+                    <span style={styles.questionCount}>
+                      {contest.questions?.length || 0} questions
+                    </span>
+                  </div>
+
+                  <h3 style={styles.cardTitle}>{contest.title}</h3>
+                  <p style={styles.cardDesc}>
+                    {contest.description || 'No description provided'}
+                  </p>
+
+                  <div style={styles.cardDates}>
+                    <div style={styles.dateItem}>
+                      <span style={styles.dateLabel}>Start</span>
+                      <span style={styles.dateValue}>
+                        {formatDate(contest.startTime)}
+                      </span>
+                    </div>
+                    <div style={styles.dateDivider} />
+                    <div style={styles.dateItem}>
+                      <span style={styles.dateLabel}>End</span>
+                      <span style={styles.dateValue}>
+                        {formatDate(contest.endTime)}
+                      </span>
+                    </div>
+                  </div>
+
+                  <div style={styles.cardActions}>
+                    <button
+                      style={styles.actionBtn}
+                      onClick={() => navigate(`/leaderboard/${contest.id}`)}
+                      onMouseEnter={e => e.currentTarget.style.background = '#f0f9ff'}
+                      onMouseLeave={e => e.currentTarget.style.background = 'white'}
+                    >
+                      Leaderboard
+                    </button>
+                    <button
+                      style={styles.actionBtnPrimary}
+                      onClick={() => navigate(`/company/contest/${contest.id}`)}
+                      onMouseEnter={e => e.currentTarget.style.background = 'linear-gradient(135deg, #0288d1, #26c6da)'}
+                      onMouseLeave={e => e.currentTarget.style.background = 'linear-gradient(135deg, #4fc3f7, #0288d1)'}
+                    >
+                      Manage
+                    </button>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </div>
+
+      {/* Scheduled Interviews Section */}
+      <div style={{ ...styles.content, paddingTop: '0px' }}>
+        <h2 style={styles.sectionTitle}>🎙️ Live Collaborative Interviews</h2>
+        
+        {interviews.length === 0 ? (
+          <div style={styles.empty}>
+            <div style={{ fontSize: '50px', marginBottom: '16px' }}>🎙️</div>
+            <h3 style={styles.emptyTitle}>No interviews scheduled</h3>
+            <p style={styles.emptySub}>Schedule a peer programming session with a candidate to start</p>
+            <button
+              style={{ ...styles.createBtn, background: 'linear-gradient(135deg, #a855f7, #7c3aed)' }}
+              onClick={() => setShowInterviewModal(true)}
+            >
+              🎙️ Schedule Interview
+            </button>
+          </div>
+        ) : (
+          <div style={styles.grid}>
+            {interviews.map((session, i) => {
+              const isActive = session.status === 'active';
+              const isCompleted = session.status === 'completed';
+              const statusColor = isCompleted ? '#ef4444' : isActive ? '#10b981' : '#f59e0b';
+              const statusBg = isCompleted ? '#fee2e2' : isActive ? '#d1fae5' : '#fef3c7';
+
+              // Share link to copy
+              const shareLink = `${window.location.origin}/interview/${session.joinToken}`;
+
+              return (
+                <div
+                  key={session.id}
+                  style={{
+                    ...styles.card,
+                    borderLeft: `4px solid ${statusColor}`,
+                    animation: `fadeIn 0.4s ease-out ${i * 0.1}s both`
+                  }}
+                >
+                  <div style={styles.cardTop}>
+                    <span style={{
+                      ...styles.statusBadge,
+                      color: statusColor,
+                      background: statusBg
+                    }}>
+                      ● {session.status.toUpperCase()}
+                    </span>
+                    <button
+                      onClick={() => {
+                        navigator.clipboard.writeText(shareLink);
+                        toast.success('Candidate invite link copied to clipboard!');
+                      }}
+                      style={{
+                        background: 'transparent', border: 'none', color: '#0288d1',
+                        fontSize: '12px', fontWeight: 'bold', cursor: 'pointer'
+                      }}
+                    >
+                      🔗 Copy Invite Link
+                    </button>
+                  </div>
+
+                  <h3 style={styles.cardTitle}>{session.title}</h3>
+                  <div style={{ fontSize: '13px', color: '#666', marginBottom: '16px' }}>
+                    <strong>Candidate:</strong> {session.candidateName} ({session.candidateEmail})
+                  </div>
+
+                  <div style={styles.cardDates}>
+                    <div style={styles.dateItem}>
+                      <span style={styles.dateLabel}>Start</span>
+                      <span style={styles.dateValue}>
+                        {formatDate(session.scheduledStart)}
+                      </span>
+                    </div>
+                    <div style={styles.dateDivider} />
+                    <div style={styles.dateItem}>
+                      <span style={styles.dateLabel}>End</span>
+                      <span style={styles.dateValue}>
+                        {formatDate(session.scheduledEnd)}
+                      </span>
+                    </div>
+                  </div>
+
+                  <button
+                    style={{
+                      ...styles.actionBtnPrimary,
+                      width: '100%',
+                      background: isCompleted ? '#cbd5e1' : 'linear-gradient(135deg, #a855f7, #7c3aed)',
+                      boxShadow: isCompleted ? 'none' : '0 4px 12px rgba(124,58,237,0.3)',
+                      cursor: isCompleted ? 'not-allowed' : 'pointer'
+                    }}
+                    disabled={isCompleted}
+                    onClick={() => navigate(`/interview/${session.joinToken}`)}
+                  >
+                    {isCompleted ? 'Interview Finished' : 'Enter Interview Arena →'}
+                  </button>
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </div>
+
+      {/* Create Contest Modal */}
+      {showModal && (
+        <div style={styles.overlay} onClick={() => setShowModal(false)}>
+          <div style={styles.modal} onClick={e => e.stopPropagation()}>
+            <div style={styles.modalHeader}>
+              <h2 style={styles.modalTitle}>Create New Contest</h2>
+              <button
+                style={styles.closeBtn}
+                onClick={() => setShowModal(false)}
+                onMouseEnter={e => e.currentTarget.style.background = '#fee2e2'}
+                onMouseLeave={e => e.currentTarget.style.background = '#f5f5f5'}
+              >
+                ✕
+              </button>
+            </div>
+
+            <form onSubmit={handleCreate} style={styles.modalForm}>
+              <div style={styles.field}>
+                <label style={styles.label}>Contest Title</label>
+                <input
+                  type="text"
+                  value={form.title}
+                  onChange={e => setForm({ ...form, title: e.target.value })}
+                  style={styles.input}
+                  placeholder="e.g. CodeStorm Round 1"
+                  required
+                />
+              </div>
+
+              <div style={styles.field}>
+                <label style={styles.label}>Description</label>
+                <textarea
+                  value={form.description}
+                  onChange={e => setForm({ ...form, description: e.target.value })}
+                  style={{ ...styles.input, height: '80px', resize: 'none' }}
+                  placeholder="Describe the contest..."
+                />
+              </div>
+
+              <div style={styles.dateRow}>
+                <div style={styles.field}>
+                  <label style={styles.label}>Start Time (IST)</label>
+                  <input
+                    type="datetime-local"
+                    value={form.startTime}
+                    onChange={e => setForm({ ...form, startTime: e.target.value })}
+                    style={styles.input}
+                    required
+                  />
+                </div>
+                <div style={styles.field}>
+                  <label style={styles.label}>End Time (IST)</label>
+                  <input
+                    type="datetime-local"
+                    value={form.endTime}
+                    onChange={e => setForm({ ...form, endTime: e.target.value })}
+                    style={styles.input}
+                    required
+                  />
+                </div>
+              </div>
+
+              <div style={{
+                background: '#f0f9ff',
+                border: '1px solid #bae6fd',
+                borderRadius: '10px',
+                padding: '10px 14px',
+                fontSize: '13px',
+                color: '#0369a1'
+              }}>
+                🕐 All times are in IST (India Standard Time, UTC+5:30)
+              </div>
+
+              <div style={styles.modalActions}>
+                <button
+                  type="button"
+                  style={styles.cancelBtn}
+                  onClick={() => setShowModal(false)}
+                >
+                  Cancel
+                </button>
+                <button type="submit" style={styles.submitBtn}>
+                  Create Contest
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Schedule Live Interview Modal */}
+      {showInterviewModal && (
+        <div style={styles.overlay} onClick={() => setShowInterviewModal(false)}>
+          <div style={styles.modal} onClick={e => e.stopPropagation()}>
+            <div style={styles.modalHeader}>
+              <h2 style={styles.modalTitle}>🎙️ Schedule Collaborative Interview</h2>
+              <button
+                style={styles.closeBtn}
+                onClick={() => setShowInterviewModal(false)}
+                onMouseEnter={e => e.currentTarget.style.background = '#fee2e2'}
+                onMouseLeave={e => e.currentTarget.style.background = '#f5f5f5'}
+              >
+                ✕
+              </button>
+            </div>
+
+            <form onSubmit={handleCreateInterview} style={styles.modalForm}>
+              <div style={styles.field}>
+                <label style={styles.label}>Session Title</label>
+                <input
+                  type="text"
+                  value={interviewForm.title}
+                  onChange={e => setInterviewForm({ ...interviewForm, title: e.target.value })}
+                  style={styles.input}
+                  placeholder="e.g. Senior Frontend Engineer Technical Interview"
+                  required
+                />
+              </div>
+
+              <div style={styles.field}>
+                <label style={styles.label}>Candidate Name</label>
+                <input
+                  type="text"
+                  value={interviewForm.candidateName}
+                  onChange={e => setInterviewForm({ ...interviewForm, candidateName: e.target.value })}
+                  style={styles.input}
+                  placeholder="e.g. Navaneeth"
+                  required
+                />
+              </div>
+
+              <div style={styles.field}>
+                <label style={styles.label}>Candidate Email</label>
+                <input
+                  type="email"
+                  value={interviewForm.candidateEmail}
+                  onChange={e => setInterviewForm({ ...interviewForm, candidateEmail: e.target.value })}
+                  style={styles.input}
+                  placeholder="e.g. tammineedinavaneeth2@gmail.com"
+                  required
+                />
+              </div>
+
+              <div style={styles.dateRow}>
+                <div style={styles.field}>
+                  <label style={styles.label}>Start Time (IST)</label>
+                  <input
+                    type="datetime-local"
+                    value={interviewForm.scheduledStart}
+                    onChange={e => setInterviewForm({ ...interviewForm, scheduledStart: e.target.value })}
+                    style={styles.input}
+                    required
+                  />
+                </div>
+                <div style={styles.field}>
+                  <label style={styles.label}>End Time (IST)</label>
+                  <input
+                    type="datetime-local"
+                    value={interviewForm.scheduledEnd}
+                    onChange={e => setInterviewForm({ ...interviewForm, scheduledEnd: e.target.value })}
+                    style={styles.input}
+                    required
+                  />
+                </div>
+              </div>
+
+              <div style={{
+                background: '#f3e8ff',
+                border: '1px solid #e9d5ff',
+                borderRadius: '10px',
+                padding: '10px 14px',
+                fontSize: '13px',
+                color: '#6b21a8'
+              }}>
+                ✉️ An automated live join invitation email will be sent instantly to the candidate upon scheduling.
+              </div>
+
+              <div style={styles.modalActions}>
+                <button
+                  type="button"
+                  style={styles.cancelBtn}
+                  onClick={() => setShowInterviewModal(false)}
+                >
+                  Cancel
+                </button>
+                <button 
+                  type="submit" 
+                  style={{ ...styles.submitBtn, background: 'linear-gradient(135deg, #a855f7, #7c3aed)', boxShadow: '0 4px 15px rgba(124,58,237,0.4)' }}
+                >
+                  Schedule Session
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* System Diagnostics Modal */}
+      {showDiagnostics && (
+        <div style={styles.overlay} onClick={() => setShowDiagnostics(false)}>
+          <div style={{ ...styles.modal, maxWidth: '850px', width: '95%' }} onClick={e => e.stopPropagation()}>
+            <div style={styles.modalHeader}>
+              <div>
+                <h2 style={styles.modalTitle}>⚡ CloudWatch EKS Container Diagnostics</h2>
+                <p style={{ fontSize: '12px', color: '#666', margin: '4px 0 0' }}>
+                  Real-time cluster health, resource utilization, and live log stream
+                </p>
+              </div>
+              <button
+                style={styles.closeBtn}
+                onClick={() => setShowDiagnostics(false)}
+                onMouseEnter={e => e.currentTarget.style.background = '#fee2e2'}
+                onMouseLeave={e => e.currentTarget.style.background = '#f5f5f5'}
+              >
+                ✕
+              </button>
+            </div>
+
+            {diagnosticsLoading ? (
+              <div style={{ padding: '60px 0', textAlign: 'center' }}>
+                <div style={{
+                  width: '40px', height: '40px', border: '4px solid #f3f3f3', borderTop: '4px solid #0288d1',
+                  borderRadius: '50%', display: 'inline-block', animation: 'spin 1s linear infinite'
+                }} />
+                <style>{`
+                  @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+                `}</style>
+                <p style={{ marginTop: '16px', color: '#666', fontSize: '14px', fontWeight: '500' }}>
+                  Querying EKS cluster components and metrics...
+                </p>
+              </div>
+            ) : diagnosticsData ? (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
+                
+                {/* Stats Grid */}
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '16px' }}>
+                  
+                  {/* Database Card */}
+                  <div style={{ background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: '16px', padding: '16px' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
+                      <span style={{ fontSize: '13px', fontWeight: '600', color: '#475569' }}>Amazon RDS MySQL</span>
+                      <span style={{
+                        fontSize: '11px', fontWeight: 'bold', padding: '2px 8px', borderRadius: '12px',
+                        background: diagnosticsData.db.status === 'Connected' ? '#d1fae5' : '#fee2e2',
+                        color: diagnosticsData.db.status === 'Connected' ? '#065f46' : '#991b1b'
+                      }}>
+                        {diagnosticsData.db.status}
+                      </span>
+                    </div>
+                    <p style={{ fontSize: '11px', color: '#64748b', wordBreak: 'break-all', margin: '0 0 6px' }}>
+                      Host: {diagnosticsData.db.host}
+                    </p>
+                    <p style={{ fontSize: '12px', fontWeight: '600', color: '#0288d1', margin: 0 }}>
+                      Latency Check: {diagnosticsData.db.latencyMs} ms
+                    </p>
+                  </div>
+
+                  {/* SQS Card */}
+                  <div style={{ background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: '16px', padding: '16px' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
+                      <span style={{ fontSize: '13px', fontWeight: '600', color: '#475569' }}>Amazon SQS Queue</span>
+                      <span style={{
+                        fontSize: '11px', fontWeight: 'bold', padding: '2px 8px', borderRadius: '12px',
+                        background: '#bae6fd', color: '#0369a1'
+                      }}>
+                        {diagnosticsData.sqs.status}
+                      </span>
+                    </div>
+                    <p style={{ fontSize: '11px', color: '#64748b', margin: '0 0 6px' }}>
+                      Queue: codestorm-prod-queue
+                    </p>
+                    <div style={{ display: 'flex', gap: '12px', marginTop: '4px' }}>
+                      <div>
+                        <span style={{ fontSize: '10px', color: '#94a3b8', display: 'block' }}>QUEUED</span>
+                        <span style={{ fontSize: '14px', fontWeight: '700', color: '#334155' }}>
+                          {diagnosticsData.sqs.queueSize}
+                        </span>
+                      </div>
+                      <div>
+                        <span style={{ fontSize: '10px', color: '#94a3b8', display: 'block' }}>PROCESSING</span>
+                        <span style={{ fontSize: '14px', fontWeight: '700', color: '#334155' }}>
+                          {diagnosticsData.sqs.inflightJobs}
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Node Process Card */}
+                  <div style={{ background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: '16px', padding: '16px' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
+                      <span style={{ fontSize: '13px', fontWeight: '600', color: '#475569' }}>EKS Pod Vitals</span>
+                      <span style={{
+                        fontSize: '11px', fontWeight: 'bold', padding: '2px 8px', borderRadius: '12px',
+                        background: '#e0f2fe', color: '#0369a1'
+                      }}>
+                        {diagnosticsData.system.isEks ? 'EKS Pod' : 'Local Dev'}
+                      </span>
+                    </div>
+                    <p style={{ fontSize: '11px', color: '#64748b', margin: '0 0 6px', textOverflow: 'ellipsis', overflow: 'hidden', whiteSpace: 'nowrap' }}>
+                      ID: {diagnosticsData.system.hostName}
+                    </p>
+                    <p style={{ fontSize: '12px', fontWeight: '600', color: '#059669', margin: 0 }}>
+                      Memory Heap: {diagnosticsData.system.memory.heapUsedMb} / {diagnosticsData.system.memory.heapTotalMb} MB
+                    </p>
+                  </div>
+
+                </div>
+
+                {/* Second Row Vitals */}
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
+                  <div style={{ background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: '16px', padding: '14px 16px', fontSize: '12px' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', borderBottom: '1px dashed #e2e8f0', paddingBottom: '6px' }}>
+                      <span style={{ color: '#64748b' }}>Amazon S3 Solution Bucket</span>
+                      <span style={{ fontWeight: '600', color: '#334155' }}>{diagnosticsData.s3.bucket}</span>
+                    </div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', borderBottom: '1px dashed #e2e8f0', padding: '6px 0' }}>
+                      <span style={{ color: '#64748b' }}>Amazon SES Email Identity</span>
+                      <span style={{ fontWeight: '600', color: '#334155' }}>Mumbai ({diagnosticsData.ses.region})</span>
+                    </div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', paddingTop: '6px' }}>
+                      <span style={{ color: '#64748b' }}>Uptime</span>
+                      <span style={{ fontWeight: '600', color: '#334155' }}>{Math.floor(diagnosticsData.system.uptimeSec / 60)} minutes</span>
+                    </div>
+                  </div>
+
+                  <div style={{ background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: '16px', padding: '14px 16px', fontSize: '12px' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', borderBottom: '1px dashed #e2e8f0', paddingBottom: '6px' }}>
+                      <span style={{ color: '#64748b' }}>NodeJS Engine Version</span>
+                      <span style={{ fontWeight: '600', color: '#334155' }}>{diagnosticsData.system.nodeVersion}</span>
+                    </div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', borderBottom: '1px dashed #e2e8f0', padding: '6px 0' }}>
+                      <span style={{ color: '#64748b' }}>OS Infrastructure</span>
+                      <span style={{ fontWeight: '600', color: '#334155' }}>{diagnosticsData.system.platform} ({diagnosticsData.system.arch})</span>
+                    </div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', paddingTop: '6px' }}>
+                      <span style={{ color: '#64748b' }}>VPC LoadBalancer Host</span>
+                      <span style={{ fontWeight: '600', color: '#334155' }}>codestorm-prod-alb-98231.ap-south-1.elb.amazonaws.com</span>
+                    </div>
+                  </div>
+                </div>
+
+                {/* CloudWatch Terminal Log Stream */}
+                <div>
+                  <h3 style={{ fontSize: '14px', fontWeight: '700', color: '#334155', marginBottom: '10px', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    <span>💻</span> Live CloudWatch Container Log Stream
+                  </h3>
+                  <div style={{
+                    background: '#0f172a', borderRadius: '16px', padding: '20px', height: '180px', overflowY: 'auto',
+                    fontFamily: '"Fira Code", monospace, "Courier New"', fontSize: '11px', color: '#cbd5e1',
+                    lineHeight: '1.6', border: '1px solid #334155', boxShadow: 'inset 0 2px 10px rgba(0,0,0,0.5)'
+                  }}>
+                    {diagnosticsData.logs.map((log, index) => {
+                      let color = '#cbd5e1';
+                      if (log.includes('INFO:')) color = '#38bdf8';
+                      if (log.includes('SUCCESS:')) color = '#4ade80';
+                      if (log.includes('HEALTHCHECK:')) color = '#fbbf24';
+                      if (log.includes('DEBUG:')) color = '#c084fc';
+                      return (
+                        <div key={index} style={{ color, marginBottom: '6px', borderBottom: '1px solid rgba(255,255,255,0.03)', paddingBottom: '4px' }}>
+                          {log}
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '12px' }}>
+                  <button
+                    onClick={fetchDiagnostics}
+                    style={{
+                      background: 'white', border: '1px solid #cbd5e1', color: '#475569', borderRadius: '10px',
+                      padding: '8px 16px', fontSize: '13px', fontWeight: '600', cursor: 'pointer', display: 'flex',
+                      alignItems: 'center', gap: '6px'
+                    }}
+                  >
+                    🔄 Refresh Metrics
+                  </button>
+                  <button
+                    onClick={() => setShowDiagnostics(false)}
+                    style={{
+                      background: 'linear-gradient(135deg, #0f172a, #334155)', border: 'none', color: 'white',
+                      borderRadius: '10px', padding: '8px 20px', fontSize: '13px', fontWeight: '600', cursor: 'pointer'
+                    }}
+                  >
+                    Dismiss
+                  </button>
+                </div>
+
+              </div>
+            ) : null}
+
+          </div>
+        </div>
+      )}
+    </div>
+  );
+};
+
+const styles = {
+  page: {
+    minHeight: 'calc(100vh - 66px)',
+    background: 'transparent',
+    fontFamily: "'Outfit', sans-serif",
+  },
+  header: {
+    padding: '40px 40px 32px',
+    background: 'linear-gradient(135deg, rgba(124,58,237,0.12) 0%, rgba(6,182,212,0.07) 100%)',
+    borderBottom: '1px solid rgba(139,92,246,0.18)',
+    position: 'relative', overflow: 'hidden',
+  },
+  headerContent: {
+    display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+    maxWidth: 1200, margin: '0 auto 28px',
+  },
+  headerTitle: {
+    fontSize: 30, fontWeight: 800, margin: '0 0 6px',
+    background: 'linear-gradient(135deg, #ffffff 0%, #a855f7 100%)',
+    WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent', backgroundClip: 'text',
+  },
+  headerSub: { fontSize: 14, color: '#64748b', margin: 0 },
+  createBtn: {
+    background: 'linear-gradient(135deg, #7c3aed, #06b6d4)',
+    color: '#fff', border: 'none',
+    padding: '12px 24px', borderRadius: 12,
+    fontSize: 14, fontWeight: 700, cursor: 'pointer',
+    boxShadow: '0 6px 24px rgba(124,58,237,0.45)',
+    transition: 'all 0.3s cubic-bezier(0.4,0,0.2,1)',
+    fontFamily: "'Outfit', sans-serif",
+  },
+  diagnosticsBtn: {
+    background: 'rgba(139,92,246,0.1)',
+    backdropFilter: 'blur(10px)',
+    border: '1px solid rgba(139,92,246,0.3)',
+    color: '#a855f7', padding: '12px 24px', borderRadius: 12,
+    fontSize: 14, fontWeight: 600, cursor: 'pointer',
+    transition: 'all 0.3s', fontFamily: "'Outfit', sans-serif",
+  },
+  statsRow: {
+    display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)',
+    gap: 14, maxWidth: 1200, margin: '0 auto',
+  },
+  statCard: {
+    background: 'rgba(26,26,46,0.7)',
+    backdropFilter: 'blur(12px)',
+    border: '1px solid rgba(139,92,246,0.2)',
+    borderRadius: 16, padding: '18px 20px',
+    display: 'flex', alignItems: 'center', gap: 14,
+    transition: 'all 0.3s ease',
+  },
+  statIcon: { fontSize: 28 },
+  statValue: { fontSize: 24, fontWeight: 800, color: '#fff', margin: 0 },
+  statLabel: { fontSize: 12, color: '#64748b', margin: 0, textTransform: 'uppercase', letterSpacing: '0.5px', fontWeight: 600 },
+  content: { maxWidth: 1200, margin: '0 auto', padding: '36px 40px' },
+  sectionTitle: {
+    fontSize: 20, fontWeight: 800, color: '#f1f5f9',
+    marginBottom: 20,
+    display: 'flex', alignItems: 'center', gap: 10,
+  },
+  grid: {
+    display: 'grid',
+    gridTemplateColumns: 'repeat(auto-fill, minmax(340px, 1fr))',
+    gap: 24,
+  },
+  card: {
+    background: 'rgba(22,22,42,0.85)',
+    backdropFilter: 'blur(16px)',
+    WebkitBackdropFilter: 'blur(16px)',
+    border: '1px solid rgba(139,92,246,0.2)',
+    borderRadius: 22, padding: '26px',
+    transition: 'all 0.35s cubic-bezier(0.4,0,0.2,1)',
+    cursor: 'pointer', transformStyle: 'preserve-3d',
+  },
+  cardTop: {
+    display: 'flex', justifyContent: 'space-between',
+    alignItems: 'center', marginBottom: 16,
+  },
+  statusBadge: {
+    fontSize: 12, fontWeight: 700,
+    padding: '4px 12px', borderRadius: 20, letterSpacing: '0.3px',
+  },
+  questionCount: {
+    fontSize: 12, color: '#94a3b8',
+    background: 'rgba(255,255,255,0.06)',
+    padding: '4px 10px', borderRadius: 20,
+  },
+  cardTitle: { fontSize: 18, fontWeight: 800, color: '#ffffff', margin: '0 0 8px', lineHeight: '1.3' },
+  cardDesc: { fontSize: 13, color: '#94a3b8', margin: '0 0 20px', lineHeight: '1.65' },
+  cardDates: {
+    display: 'flex', alignItems: 'center', gap: 16,
+    padding: '13px 16px',
+    background: 'rgba(124,58,237,0.06)',
+    border: '1px solid rgba(139,92,246,0.15)',
+    borderRadius: 12, marginBottom: 20,
+  },
+  dateItem: { display: 'flex', flexDirection: 'column', gap: 3, flex: 1 },
+  dateLabel: { fontSize: 10, color: '#475569', textTransform: 'uppercase', letterSpacing: '0.8px', fontWeight: 700 },
+  dateValue: { fontSize: 12, fontWeight: 700, color: '#e2e8f0' },
+  dateDivider: { width: 1, height: 30, background: 'rgba(139,92,246,0.2)' },
+  cardActions: { display: 'flex', gap: 10 },
+  actionBtn: {
+    flex: 1, padding: '10px',
+    border: '1px solid rgba(139,92,246,0.25)',
+    borderRadius: 10, fontSize: 13, fontWeight: 700,
+    cursor: 'pointer', background: 'rgba(255,255,255,0.05)',
+    color: '#94a3b8', transition: 'all 0.2s ease',
+    fontFamily: "'Outfit', sans-serif",
+  },
+  actionBtnPrimary: {
+    flex: 1, padding: '10px',
+    background: 'linear-gradient(135deg, #7c3aed, #06b6d4)',
+    border: 'none', borderRadius: 10,
+    fontSize: 13, fontWeight: 700, cursor: 'pointer',
+    color: '#fff', transition: 'all 0.3s ease',
+    fontFamily: "'Outfit', sans-serif",
+    boxShadow: '0 4px 16px rgba(124,58,237,0.35)',
+  },
+  loadingGrid: {
+    display: 'grid',
+    gridTemplateColumns: 'repeat(auto-fill, minmax(340px, 1fr))',
+    gap: 24,
+  },
+  skeletonCard: {
+    background: 'rgba(26,26,46,0.5)',
+    border: '1px solid rgba(139,92,246,0.1)',
+    borderRadius: 20, padding: 24,
+    animation: 'pulse 1.5s ease-in-out infinite',
+  },
+  skeletonTitle: { height: 20, background: 'rgba(139,92,246,0.1)', borderRadius: 8, marginBottom: 12, width: '60%' },
+  skeletonText:  { height: 14, background: 'rgba(139,92,246,0.07)', borderRadius: 8, marginBottom: 8, width: '80%' },
+  empty: {
+    textAlign: 'center', padding: '80px 20px',
+    background: 'rgba(22,22,42,0.7)', backdropFilter: 'blur(12px)',
+    border: '1px solid rgba(139,92,246,0.18)', borderRadius: 22,
+  },
+  emptyIcon: { fontSize: 60, marginBottom: 16 },
+  emptyTitle: { fontSize: 20, fontWeight: 800, color: '#f1f5f9', margin: '0 0 8px' },
+  emptySub: { fontSize: 14, color: '#64748b', margin: '0 0 24px' },
+  overlay: {
+    position: 'fixed', inset: 0,
+    background: 'rgba(0,0,0,0.85)',
+    display: 'flex', alignItems: 'center', justifyContent: 'center',
+    zIndex: 1000, backdropFilter: 'blur(10px)',
+  },
+  modal: {
+    background: 'rgba(14,14,26,0.97)',
+    backdropFilter: 'blur(24px)',
+    border: '1px solid rgba(139,92,246,0.35)',
+    borderRadius: 24, padding: '36px',
+    width: '100%', maxWidth: 560,
+    animation: 'fadeInScale 0.4s cubic-bezier(0.16,1,0.3,1)',
+    boxShadow: '0 30px 80px rgba(0,0,0,0.8)',
+  },
+  modalHeader: {
+    display: 'flex', justifyContent: 'space-between',
+    alignItems: 'center', marginBottom: 28,
+  },
+  modalTitle: { fontSize: 20, fontWeight: 800, color: '#f1f5f9', margin: 0 },
+  closeBtn: {
+    width: 32, height: 32, border: 'none',
+    background: 'rgba(255,255,255,0.06)',
+    borderRadius: 8, cursor: 'pointer',
+    fontSize: 14, color: '#94a3b8',
+    transition: 'all 0.2s', fontFamily: "'Outfit', sans-serif",
+  },
+  modalForm: { display: 'flex', flexDirection: 'column', gap: 18 },
+  field: { display: 'flex', flexDirection: 'column', gap: 7 },
+  label: { fontSize: 11, fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.8px' },
+  input: {
+    padding: '12px 16px',
+    border: '1.5px solid rgba(139,92,246,0.25)',
+    borderRadius: 12, fontSize: 14, outline: 'none',
+    color: '#f1f5f9', background: 'rgba(255,255,255,0.04)',
+    transition: 'border 0.25s ease', fontFamily: "'Outfit', sans-serif",
+  },
+  dateRow: { display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 },
+  modalActions: { display: 'flex', gap: 12, marginTop: 8 },
+  cancelBtn: {
+    flex: 1, padding: '12px',
+    background: 'rgba(255,255,255,0.05)',
+    border: '1px solid rgba(255,255,255,0.1)',
+    borderRadius: 12, fontSize: 14, fontWeight: 600,
+    cursor: 'pointer', color: '#94a3b8',
+    fontFamily: "'Outfit', sans-serif",
+  },
+  submitBtn: {
+    flex: 1, padding: '12px',
+    background: 'linear-gradient(135deg, #7c3aed, #06b6d4)',
+    border: 'none', borderRadius: 12,
+    fontSize: 14, fontWeight: 700, cursor: 'pointer',
+    color: '#fff', boxShadow: '0 4px 20px rgba(124,58,237,0.4)',
+    fontFamily: "'Outfit', sans-serif",
+  },
+};
+
+export default CompanyDashboard;
